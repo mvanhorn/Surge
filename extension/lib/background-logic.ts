@@ -1,6 +1,7 @@
 export interface PendingDup {
   url: string;
   filename: string;
+  filenameHint?: string;
   directory: string;
   timestamp: number;
 }
@@ -158,6 +159,7 @@ interface QueueDuplicateDownloadOptions {
   pendingDuplicateCounter: number;
   url: string;
   filename: string;
+  filenameHint?: string;
   directory: string;
   persistPendingDuplicates: () => Promise<void>;
   updateBadge: () => void;
@@ -173,6 +175,7 @@ export async function queueDuplicateDownload(opts: QueueDuplicateDownloadOptions
   opts.pendingDuplicates.set(pendingId, {
     url: opts.url,
     filename: opts.filename,
+    filenameHint: opts.filenameHint,
     directory: opts.directory,
     timestamp: opts.now?.() ?? Date.now(),
   });

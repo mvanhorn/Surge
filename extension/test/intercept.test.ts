@@ -55,7 +55,7 @@ describe('download interception naming', () => {
     vi.unstubAllGlobals();
   });
 
-  it('sends an empty filename to Surge if browser provides no filename, preventing bad URL hints', async () => {
+  it.each([undefined, ''])('sends an empty hint when the browser filename is %s', async (filename) => {
     // 1. Mock health check and download response
     mockFetch.mockImplementation(async (url: string) => {
       if (url.includes('/health')) return { ok: true };
@@ -69,7 +69,8 @@ describe('download interception naming', () => {
 
     const downloadItem = {
       id: 123,
-      url: 'https://example.com/some/long/path/with/potential/bad/fallback',
+      filename,
+      url: 'https://example.com/original.zip',
       startTime: new Date().toISOString(),
     };
 
@@ -89,7 +90,11 @@ describe('download interception naming', () => {
     }));
   });
 
-  it('always sends an empty filename even when the browser provides one, deferring to the backend prober', async () => {
+  it.each([
+    ['C:\\Users\\me\\chosen name.zip', 'chosen name.zip', 'C:/Users/me'],
+    ['/home/me/選択.zip', '選択.zip', '/home/me'],
+    ['chosen.zip', 'chosen.zip', undefined],
+  ])('preserves the browser filename from %s', async (filename, basename, directory) => {
     mockFetch.mockImplementation(async (url: string) => {
       if (url.includes('/health')) return { ok: true };
       if (url.includes('/list')) return { ok: true, json: async () => [] };
@@ -103,7 +108,7 @@ describe('download interception naming', () => {
     const downloadItem = {
       id: 456,
       url: 'https://example.com/file',
-      filename: '/path/to/authoritative.zip', // Browser already knows the name
+      filename,
       startTime: new Date().toISOString(),
     };
 
@@ -111,10 +116,17 @@ describe('download interception naming', () => {
 
     const downloadCall = mockFetch.mock.calls.find(call => call[0].endsWith('/download'));
     const body = JSON.parse(downloadCall?.[1].body);
-    expect(body.filename).toBe('');
+    expect(body.filename).toBe(basename);
+    expect(body.filename).not.toMatch(/[\\/]/);
+    expect(body.path).toBe(directory);
+    expect(mockFetch.mock.calls.filter(call => call[0].endsWith('/download'))).toHaveLength(1);
   });
 
-  it('uses the server duplicate check and prompts when the warning is enabled', async () => {
+  it.each([
+    ['/downloads/chosen.zip', 'chosen.zip', false],
+    ['', '', false],
+    ['', '', true],
+  ])('preserves duplicate hints after rehydration (filename: %s, hint: %s, legacy: %s)', async (filename, filenameHint, legacy) => {
     mockFetch.mockImplementation(async (url: string) => {
       if (url.endsWith('/download/duplicate')) {
         return { ok: true, json: async () => ({ exists: true }) };
@@ -126,12 +138,34 @@ describe('download interception naming', () => {
     });
 
     const url = 'https://example.com/finished.zip';
-    await __test__.handleDownloadCreated({ id: 457, url, startTime: new Date().toISOString() });
+    await __test__.handleDownloadCreated({ id: 457, url, filename, startTime: new Date().toISOString() });
 
     const check = mockFetch.mock.calls.find(call => call[0].endsWith('/download/duplicate'));
     expect(JSON.parse(check?.[1].body)).toEqual({ url });
     expect(mockFetch.mock.calls.some(call => call[0].endsWith('/download'))).toBe(false);
-    expect(browser.runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'promptDuplicate' }));
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'promptDuplicate', id: 'dup_1', filename: filenameHint || 'finished.zip',
+    });
+
+    const stored = (browser.storage.local.set as import('vitest').Mock).mock.calls
+      .find(call => call[0].pendingDuplicates)?.[0];
+    const persisted = JSON.parse(JSON.stringify(stored));
+    expect(persisted.pendingDuplicates[0][1].filenameHint).toBe(filenameHint);
+    if (legacy) delete persisted.pendingDuplicates[0][1].filenameHint;
+    __test__.resetState();
+    (browser.storage.local.get as import('vitest').Mock).mockImplementation((key: string) => {
+      if (key === 'pendingDuplicates') return Promise.resolve(persisted);
+      if (key === 'serverUrl') return Promise.resolve({ serverUrl: 'http://127.0.0.1:1700' });
+      return Promise.resolve({});
+    });
+    await __test__.rehydratePendingDuplicates();
+    expect(await __test__.handleMessage({ type: 'confirmDuplicate', id: 'dup_1' }))
+      .toEqual({ success: true });
+    const downloads = mockFetch.mock.calls.filter(call => call[0].endsWith('/download'));
+    expect(downloads).toHaveLength(1);
+    const body = JSON.parse(downloads[0][1].body);
+    expect(body.filename).toBe(filenameHint);
+    expect(body.path).toBe(filename ? '/downloads' : undefined);
   });
 
   it('sends the narrow duplicate override without a popup when the warning is disabled', async () => {

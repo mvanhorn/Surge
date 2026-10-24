@@ -119,7 +119,8 @@ describe('background logic', () => {
       pendingDuplicates,
       pendingDuplicateCounter: 0,
       url: 'https://example.com/file.zip',
-      filename: 'file.zip',
+      filename: 'chosen.zip',
+      filenameHint: 'chosen.zip',
       directory: '/downloads',
       persistPendingDuplicates,
       updateBadge,
@@ -133,7 +134,8 @@ describe('background logic', () => {
       'dup_1',
       {
         url: 'https://example.com/file.zip',
-        filename: 'file.zip',
+        filename: 'chosen.zip',
+        filenameHint: 'chosen.zip',
         directory: '/downloads',
         timestamp: 1234,
       },
@@ -144,7 +146,7 @@ describe('background logic', () => {
     expect(sendPrompt).toHaveBeenCalledWith({
       type: 'promptDuplicate',
       id: 'dup_1',
-      filename: 'file.zip',
+      filename: 'chosen.zip',
     });
   });
 

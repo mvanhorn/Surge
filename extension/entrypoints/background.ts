@@ -775,6 +775,7 @@ async function handleDownloadCreated(downloadItem: {
       pendingDuplicateCounter,
       url: downloadItem.url,
       filename: duplicateDisplayName,
+      filenameHint: filename,
       directory,
       cleanupStaleDuplicates,
       persistPendingDuplicates,
@@ -785,8 +786,7 @@ async function handleDownloadCreated(downloadItem: {
     return;
   }
 
-  // Force empty filename hint for backend - rely on backend prober.
-  const result = await sendToSurge(downloadItem.url, '', directory, headers, {
+  const result = await sendToSurge(downloadItem.url, filename, directory, headers, {
     skipDuplicateWarning: !warnOnDuplicate,
   });
   logDownload('handoff complete', { id: downloadItem.id, url: downloadItem.url, outcome: result.outcome });
@@ -1074,7 +1074,7 @@ async function handleConfirmDuplicate(id: string): Promise<{ success: boolean; e
 
   const result = await sendToSurge(
     pending.url,
-    '', // Force empty - rely on backend prober
+    pending.filenameHint ?? '',
     pending.directory,
     {},
     { skipApproval: true },
@@ -1191,6 +1191,7 @@ export default defineBackground(() => {
 });
 
 export const __test__ = {
+  rehydratePendingDuplicates,
   ensurePersistedStateLoaded,
   getCachedState(): {
     authToken: string | null;
